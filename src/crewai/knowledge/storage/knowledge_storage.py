@@ -13,11 +13,10 @@ from chromadb.api.types import OneOrMany
 from chromadb.config import Settings
 
 from crewai.knowledge.storage.base_knowledge_storage import BaseKnowledgeStorage
-from crewai.utilities import EmbeddingConfigurator
+from crewai.utilities import EmbeddingConfigurator, Summarizer
 from crewai.utilities.constants import KNOWLEDGE_DIRECTORY
 from crewai.utilities.logger import Logger
 from crewai.utilities.paths import db_storage_path
-
 
 @contextlib.contextmanager
 def suppress_logging(
@@ -45,6 +44,7 @@ class KnowledgeStorage(BaseKnowledgeStorage):
     collection: Optional[chromadb.Collection] = None
     collection_name: Optional[str] = "knowledge"
     app: Optional[ClientAPI] = None
+    summarizer: Summarizer = Summarizer()
 
     def __init__(
         self,
@@ -63,11 +63,18 @@ class KnowledgeStorage(BaseKnowledgeStorage):
     ) -> List[Dict[str, Any]]:
         with suppress_logging():
             if self.collection:
-                fetched = self.collection.query(
-                    query_texts=query,
-                    n_results=limit,
-                    where=filter,
-                )
+                try:
+                    fetched = self.collection.query(
+                        query_texts=query,
+                        n_results=limit,
+                        where=filter,
+                    )
+                except Exception as e:
+                    fetched = self.collection.query(
+                        query_texts=self.summarizer.summarize(query),
+                        n_results=limit,
+                        where=filter,
+                    )
                 results = []
                 for i in range(len(fetched["ids"][0])):  # type: ignore
                     result = {

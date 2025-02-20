@@ -33,6 +33,7 @@ class ToolResult:
 
 class CrewAgentExecutor(CrewAgentExecutorMixin):
     _logger: Logger = Logger()
+    retry_limit: int = 5
 
     def __init__(
         self,
@@ -195,7 +196,7 @@ class CrewAgentExecutor(CrewAgentExecutorMixin):
         if self.request_within_rpm_limit:
             self.request_within_rpm_limit()
 
-    def _get_llm_response(self) -> str:
+    def _get_llm_response(self, current_attempt: int = 0) -> str:
         """Call the LLM and return the response, handling any invalid responses."""
         try:
             answer = self.llm.call(
@@ -210,11 +211,14 @@ class CrewAgentExecutor(CrewAgentExecutorMixin):
             raise e
 
         if not answer:
-            self._printer.print(
-                content="Received None or empty response from LLM call.",
-                color="red",
-            )
-            raise ValueError("Invalid response from LLM call - None or empty.")
+            if current_attempt < self.retry_limit:
+                return self._get_llm_response(current_attempt + 1)
+            else:
+              self._printer.print(
+                  content="Received None or empty response from LLM call.",
+                  color="red",
+              )
+              raise ValueError("Invalid response from LLM call - None or empty.")
 
         return answer
 
@@ -597,7 +601,7 @@ class CrewAgentExecutor(CrewAgentExecutorMixin):
             color="red",
         )
 
-    def _handle_max_iterations_exceeded(self, formatted_answer):
+    def _handle_max_iterations_exceeded(self, formatted_answer, current_attempt: int = 0):
         """
         Handles the case when the maximum number of iterations is exceeded.
         Performs one more LLM call to get the final answer.
@@ -629,11 +633,14 @@ class CrewAgentExecutor(CrewAgentExecutorMixin):
         )
 
         if answer is None or answer == "":
-            self._printer.print(
-                content="Received None or empty response from LLM call.",
-                color="red",
-            )
-            raise ValueError("Invalid response from LLM call - None or empty.")
+            if current_attempt < self.retry_limit:
+                return self._handle_max_iterations_exceeded(formatted_answer, current_attempt + 1)
+            else:
+                self._printer.print(
+                    content="Received None or empty response from LLM call.",
+                    color="red",
+                )
+                raise ValueError("Invalid response from LLM call - None or empty.")
 
         formatted_answer = self._format_answer(answer)
         # Return the formatted answer, regardless of its type
